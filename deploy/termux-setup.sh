@@ -17,11 +17,14 @@ echo "==> Installing system packages (python, ffmpeg, rclone, numpy, procps, ter
 # termux-api is for termux-wake-lock so the phone doesn't sleep the app.
 pkg install -y python ffmpeg rclone procps termux-api python-numpy
 
-echo "==> Installing Python deps (pure-python; numpy already from pkg)"
-# No virtualenv on Termux: the venv wouldn't see the pkg-installed numpy, and run.sh
-# falls back to python3 when there's no .venv. Install the rest into user site-packages.
-python -m pip install --upgrade pip
-python -m pip install python-dotenv fastapi "uvicorn[standard]" websockets itsdangerous
+echo "==> Creating a virtualenv and installing the pure-Python deps"
+# A venv avoids Termux's PEP 668 "externally-managed-environment" pip block, and
+# --system-site-packages lets it see the pkg-installed numpy (no slow numpy build).
+# run.sh prefers .venv/bin/python automatically. The web stack is Starlette-based
+# (no FastAPI/pydantic/Rust), so everything here is pure Python — no compilation.
+python -m venv --system-site-packages .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install python-dotenv starlette uvicorn websockets itsdangerous
 
 echo "==> Checking ffmpeg has libx264 (needed to re-encode clips)"
 if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libx264; then

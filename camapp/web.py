@@ -3,6 +3,8 @@
 Only this port is exposed (over Tailscale). go2rtc runs bound to localhost and is
 reached only through the authenticated /mse WebSocket proxy, so the video channel
 is gated by the same login. Installable as a PWA (manifest + service worker).
+
+Built on Starlette (pure-Python, no compiled deps) so it installs cleanly on Termux.
 """
 from __future__ import annotations
 
@@ -10,15 +12,17 @@ import asyncio
 import contextlib
 import logging
 import threading
-import time
 from pathlib import Path
-from urllib.parse import urlparse
 
 import uvicorn
 import websockets
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
+from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
+from starlette.requests import Request
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocket
 
 from .config import Config, load_config
 from .ptz import PTZController
@@ -35,7 +39,6 @@ class App:
         self.ptz = PTZController()
         self.go2rtc_ws = cfg.go2rtc_url.replace("http", "ws", 1) + "/api/ws"
 
-    # -- auth --------------------------------------------------------------
     def issue(self, resp: Response) -> None:
         token = self.signer.dumps({"ok": True})
         resp.set_cookie("session", token, max_age=SESSION_MAX_AGE, httponly=True, samesite="lax")
@@ -51,27 +54,22 @@ class App:
             return False
 
 
-def build(cfg: Config) -> FastAPI:
+def build(cfg: Config) -> Starlette:
     state = App(cfg)
 
     @contextlib.asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: Starlette):
         threading.Thread(target=state.ptz.connect, daemon=True).start()  # ~fast handshake replay
         yield
         state.ptz.close()
 
-    app = FastAPI(lifespan=lifespan)
-
-    def require(request: Request):
+    def require(request: Request) -> None:
         if not state.authed(request):
             raise HTTPException(status_code=401, detail="login required")
 
-    @app.get("/login", response_class=HTMLResponse)
-    def login_page():
-        return (STATIC / "login.html").read_text()
-
-    @app.post("/login")
     async def login(request: Request):
+        if request.method == "GET":
+            return HTMLResponse((STATIC / "login.html").read_text())
         body = await request.json()
         if not cfg.web_password or body.get("password") != cfg.web_password:
             return JSONResponse({"ok": False}, status_code=401)
@@ -79,29 +77,30 @@ def build(cfg: Config) -> FastAPI:
         state.issue(resp)
         return resp
 
-    @app.post("/logout")
-    def logout():
+    async def logout(request: Request):
         resp = JSONResponse({"ok": True})
         resp.delete_cookie("session")
         return resp
 
-    @app.get("/", response_class=HTMLResponse)
-    def index(request: Request):
+    async def index(request: Request):
         if not state.authed(request):
             return HTMLResponse('<meta http-equiv="refresh" content="0; url=/login">')
-        return (STATIC / "index.html").read_text()
+        return HTMLResponse((STATIC / "index.html").read_text())
 
-    @app.post("/app/ptz/{direction}")
-    def ptz(direction: str, request: Request, steps: int = 1):
+    async def ptz(request: Request):
         require(request)
+        direction = request.path_params["direction"]
+        try:
+            steps = int(request.query_params.get("steps", "1"))
+        except ValueError:
+            steps = 1
         try:
             state.ptz.pan(direction, max(1, min(steps, 10)))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        return {"ok": True, "direction": direction, "steps": steps}
+        return JSONResponse({"ok": True, "direction": direction, "steps": steps})
 
-    @app.get("/app/events")
-    def events(request: Request):
+    async def events(request: Request):
         require(request)
         d = cfg.clips_dir
         items = []
@@ -111,20 +110,16 @@ def build(cfg: Config) -> FastAPI:
                 thumb = f.with_suffix(".jpg")
                 items.append({"name": f.name, "size": st.st_size, "mtime": int(st.st_mtime),
                               "thumb": thumb.name if thumb.exists() else None})
-        return {"events": items}
+        return JSONResponse({"events": items})
 
-    @app.get("/clips/{name}")
-    def clip(name: str, request: Request):
+    async def clip(request: Request):
         require(request)
-        f = (cfg.clips_dir / name).resolve()
+        f = (cfg.clips_dir / request.path_params["name"]).resolve()
         if f.parent != cfg.clips_dir.resolve() or not f.exists():
             raise HTTPException(status_code=404)
-        from fastapi.responses import FileResponse
         return FileResponse(f)
 
-    # -- PWA ---------------------------------------------------------------
-    @app.get("/manifest.webmanifest")
-    def manifest():
+    async def manifest(request: Request):
         return JSONResponse({
             "name": "Backyard Camera", "short_name": "Camera", "start_url": "/",
             "display": "standalone", "background_color": "#101014", "theme_color": "#101014",
@@ -134,20 +129,15 @@ def build(cfg: Config) -> FastAPI:
             ],
         })
 
-    @app.get("/sw.js")
-    def sw():
+    async def sw(request: Request):
         return PlainTextResponse((STATIC / "sw.js").read_text(), media_type="application/javascript")
 
-    @app.get("/static/{name}")
-    def static(name: str):
-        f = (STATIC / name).resolve()
+    async def static_file(request: Request):
+        f = (STATIC / request.path_params["name"]).resolve()
         if f.parent != STATIC.resolve() or not f.exists():
             raise HTTPException(status_code=404)
-        from fastapi.responses import FileResponse
         return FileResponse(f)
 
-    # -- live view: authenticated WS proxy to localhost go2rtc -------------
-    @app.websocket("/mse")
     async def mse(ws: WebSocket):
         # WebSocket auth: check the session cookie before upgrading traffic.
         tok = ws.cookies.get("session")
@@ -188,7 +178,19 @@ def build(cfg: Config) -> FastAPI:
         with contextlib.suppress(Exception):
             await ws.close()
 
-    return app
+    routes = [
+        Route("/login", login, methods=["GET", "POST"]),
+        Route("/logout", logout, methods=["POST"]),
+        Route("/", index, methods=["GET"]),
+        Route("/app/ptz/{direction}", ptz, methods=["POST"]),
+        Route("/app/events", events, methods=["GET"]),
+        Route("/clips/{name}", clip, methods=["GET"]),
+        Route("/manifest.webmanifest", manifest, methods=["GET"]),
+        Route("/sw.js", sw, methods=["GET"]),
+        Route("/static/{name}", static_file, methods=["GET"]),
+        WebSocketRoute("/mse", mse),
+    ]
+    return Starlette(routes=routes, lifespan=lifespan)
 
 
 def main() -> None:
