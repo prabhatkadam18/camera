@@ -16,7 +16,9 @@ git clone <YOUR_REPO_URL> camera
 cd camera
 bash deploy/termux-setup.sh
 ```
-This installs python, ffmpeg (with libx264), rclone, numpy, and the go2rtc ARM binary.
+This installs python, ffmpeg (with libx264), rclone, numpy, and **builds go2rtc from
+source** (a few minutes — the prebuilt binary crashes on Android's seccomp, so it's
+compiled with Termux's Go using `-checklinkname=0`).
 
 ## 2. Configure
 **`.env`** — copy the example and fill it in:

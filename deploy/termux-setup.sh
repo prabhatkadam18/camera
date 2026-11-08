@@ -33,23 +33,20 @@ else
   echo "    WARNING: libx264 not found in ffmpeg — clip re-encoding will fail." >&2
 fi
 
-echo "==> Fetching the go2rtc binary ($GO2RTC_VERSION)"
+echo "==> Building go2rtc from source ($GO2RTC_VERSION)"
+# IMPORTANT: the prebuilt go2rtc Linux binary crashes on Android's seccomp
+# (SIGSYS on the faccessat2 syscall when it looks up ffmpeg). So build it with
+# Termux's Go, which is patched for Android's syscalls. The -checklinkname=0
+# linker flag is required for the anet dependency's //go:linkname under Go 1.23+
+# (see https://github.com/wlynxg/anet README).
+pkg install -y golang
 mkdir -p tools/bin
-case "$(uname -m)" in
-  aarch64|arm64) GOARCH="arm64" ;;
-  armv7l|armv8l|arm) GOARCH="arm" ;;
-  x86_64) GOARCH="amd64" ;;
-  *) echo "    Unknown arch $(uname -m); download go2rtc manually to tools/bin/go2rtc" >&2; GOARCH="" ;;
-esac
-if [ -n "$GOARCH" ]; then
-  url="https://github.com/AlexxIT/go2rtc/releases/download/${GO2RTC_VERSION}/go2rtc_linux_${GOARCH}"
-  echo "    $url"
-  rclone --version >/dev/null 2>&1 || true
-  if command -v curl >/dev/null 2>&1; then curl -fL "$url" -o tools/bin/go2rtc;
-  else pkg install -y curl && curl -fL "$url" -o tools/bin/go2rtc; fi
-  chmod +x tools/bin/go2rtc
-  echo "    go2rtc: $(tools/bin/go2rtc --version 2>&1 | head -1 || echo 'installed')"
+LDFLAGS="-checklinkname=0"
+if ! GOBIN="$PWD/tools/bin" GOFLAGS=-buildvcs=false go install -ldflags="$LDFLAGS" "github.com/AlexxIT/go2rtc@${GO2RTC_VERSION}"; then
+  echo "    ${GO2RTC_VERSION} failed to build; trying master…" >&2
+  GOBIN="$PWD/tools/bin" GOFLAGS=-buildvcs=false go install -ldflags="$LDFLAGS" github.com/AlexxIT/go2rtc@master
 fi
+echo "    go2rtc: $(tools/bin/go2rtc --version 2>&1 | head -1 || echo 'build failed')"
 
 echo
 echo "==> Packages done. Next (see DEPLOY.md):"
