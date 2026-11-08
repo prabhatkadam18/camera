@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Backyard Camera</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#101014">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, sans-serif; background:#101014; color:#e8e8ea;
+    padding: env(safe-area-inset-top) 16px calc(16px + env(safe-area-inset-bottom)); max-width:720px; margin:0 auto; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:14px 0; }
+  header h1 { font-size:1.05rem; margin:0; font-weight:600; }
+  header button { background:#22222a; color:#aaa; border:0; border-radius:8px; padding:6px 10px; font-size:.85rem; }
+  .video-wrap { position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:16/9; }
+  video-stream { display:block; width:100%; height:100%; }
+  video-stream video, video { width:100%; height:100%; object-fit:contain; display:block; background:#000; }
+  .pad { margin:18px auto; display:grid; grid-template-columns:repeat(3,64px); grid-template-rows:repeat(3,64px);
+    gap:10px; justify-content:center; }
+  .pad button { font-size:1.6rem; border:0; border-radius:14px; background:#1d1d24; color:#fff; touch-action:manipulation; }
+  .pad button:active { background:#0a84ff; }
+  .pad .u { grid-area:1/2; } .pad .l { grid-area:2/1; } .pad .r { grid-area:2/3; } .pad .d { grid-area:3/2; }
+  .pad .c { grid-area:2/2; background:transparent; color:#555; font-size:.7rem; }
+  h2 { font-size:.9rem; color:#999; margin:20px 0 8px; font-weight:600; }
+  .events { display:grid; gap:8px; }
+  .events a { display:flex; align-items:center; gap:12px; padding:9px 11px; background:#17171c;
+    border:1px solid #23232b; border-radius:10px; color:#ddd; text-decoration:none; font-size:.85rem; }
+  .events img { width:80px; height:45px; object-fit:cover; border-radius:6px; background:#000; flex:none; }
+  .events .meta { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .events .meta span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .events .t { color:#888; }
+  .empty { color:#666; font-size:.85rem; padding:8px 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Backyard Camera</h1>
+  <button onclick="fetch('/logout',{method:'POST'}).then(()=>location.href='/login')">Sign out</button>
+</header>
+
+<div class="video-wrap">
+  <!-- go2rtc's own player component; its MSE handling (5s buffer, playbackRate catch-up,
+       gap recovery, 15s reconnect) is proven. It connects to our login-gated /mse proxy. -->
+  <video-stream id="v"></video-stream>
+</div>
+
+<div class="pad">
+  <button class="u" data-dir="up">▲</button>
+  <button class="l" data-dir="left">◀</button>
+  <button class="c">PAN<br>TILT</button>
+  <button class="r" data-dir="right">▶</button>
+  <button class="d" data-dir="down">▼</button>
+</div>
+
+<h2>RECORDED EVENTS</h2>
+<div class="events" id="events"><div class="empty">Loading…</div></div>
+
+<!-- Live view: go2rtc's player. video-stream.js imports ./video-rtc.js (both in /static). -->
+<script type="module" src="/static/video-stream.js"></script>
+<script type="module">
+  // Point the player at our authenticated proxy. src '/mse?src=camera' becomes
+  // ws(s)://<host>/mse?src=camera inside the component. Force MSE (WebRTC is disabled
+  // in go2rtc, and MSE carries the camera audio).
+  customElements.whenDefined('video-stream').then(() => {
+    const v = document.getElementById('v');
+    v.mode = 'mse';
+    v.src = '/mse?src=camera';
+  });
+</script>
+
+<script>
+// ---- PTZ ----
+function toast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id='toast';
+    t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000a;color:#fff;padding:8px 14px;border-radius:8px;font-size:.85rem;z-index:9;transition:opacity .3s';
+    document.body.appendChild(t); }
+  t.textContent = msg; t.style.opacity='1';
+  clearTimeout(t._h); t._h = setTimeout(()=> t.style.opacity='0', 1200);
+}
+for (const b of document.querySelectorAll('.pad button[data-dir]')) {
+  b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const r = await fetch(`/app/ptz/${b.dataset.dir}?steps=1`, {method:'POST'});
+      toast(r.ok ? `${b.dataset.dir} ▸` : `pan failed (${r.status})`);
+    } catch (e) { toast('pan error — is the server up?'); }
+    setTimeout(() => b.disabled = false, 500);
+  };
+}
+// The player starts muted so it can autoplay; use the video's own volume/mute control
+// to turn sound on (that counts as the user gesture browsers require).
+
+// ---- Events ----
+async function loadEvents() {
+  const r = await fetch('/app/events'); if (!r.ok) return;
+  const {events} = await r.json(); const el = document.getElementById('events');
+  if (!events.length) { el.innerHTML = '<div class="empty">No events yet.</div>'; return; }
+  el.innerHTML = events.map(e => {
+    const d = new Date(e.mtime*1000).toLocaleString();
+    const mb = (e.size/1048576).toFixed(1);
+    const thumb = e.thumb ? `<img src="/clips/${encodeURIComponent(e.thumb)}" alt="">` : '';
+    return `<a href="/clips/${encodeURIComponent(e.name)}" target="_blank">${thumb}<span class="meta"><span>${e.name}</span><span class="t">${d} · ${mb} MB</span></span></a>`;
+  }).join('');
+}
+loadEvents(); setInterval(loadEvents, 30000);
+
+// ---- PWA ----
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+</script>
+</body>
+</html>

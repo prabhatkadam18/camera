@@ -1,0 +1,8 @@
+# Core runtime (works on Termux/Android; no OpenCV needed).
+# On Termux, install numpy with `pkg install python-numpy` (faster than pip building it).
+python-dotenv==1.0.1
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+websockets==14.1
+itsdangerous==2.2.0
+numpy==2.0.2

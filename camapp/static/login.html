@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Camera — Sign in</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#101014">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center;
+    font-family: system-ui, -apple-system, sans-serif; background:#101014; color:#e8e8ea; }
+  form { width:min(92vw,340px); padding:28px; background:#17171c; border:1px solid #26262e;
+    border-radius:16px; display:grid; gap:14px; }
+  h1 { font-size:1.1rem; margin:0 0 4px; font-weight:600; }
+  input { padding:12px 14px; font-size:16px; border-radius:10px; border:1px solid #33333d;
+    background:#0d0d11; color:#fff; }
+  button { padding:12px; font-size:16px; border:0; border-radius:10px; background:#0a84ff; color:#fff; font-weight:600; }
+  .err { color:#ff6b6b; font-size:.9rem; min-height:1.2em; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>Backyard Camera</h1>
+  <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus>
+  <button type="submit">Sign in</button>
+  <div class="err" id="err"></div>
+</form>
+<script>
+  const f = document.getElementById('f'), err = document.getElementById('err');
+  f.onsubmit = async (e) => {
+    e.preventDefault(); err.textContent = '';
+    const r = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({password: document.getElementById('pw').value})});
+    if (r.ok) location.href = '/';
+    else err.textContent = 'Wrong password';
+  };
+</script>
+</body>
+</html>

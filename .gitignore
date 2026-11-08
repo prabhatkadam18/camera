@@ -1,0 +1,23 @@
+# Secrets — never commit
+.env
+data/secret.key
+
+# Local environments / build
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Large local-only analysis (the decompiled APK, ~680MB)
+_apk_untrusted/
+
+# Platform-specific binaries (the setup script downloads the right go2rtc per device)
+tools/bin/
+
+# Generated recordings (rolling buffer + saved clips)
+data/buffer/
+data/clips/
+
+# Device-specific PTZ replay data for THIS camera — do not publish it.
+# Copy it to the phone manually (like .env); see DEPLOY.md.
+data/ptz_profile.json

@@ -1,0 +1,27 @@
+# go2rtc ingests the camera once and serves it to the browser (MSE, with audio).
+# Bound to localhost only — the web app proxies it behind the login, so it is never
+# exposed directly. ${RTSP_MAIN_URL} is read from the environment (set from .env by
+# the run script), so no password is stored in this file.
+
+api:
+  listen: "127.0.0.1:1984"
+
+rtsp:
+  listen: "127.0.0.1:8554"   # localhost only; required internally by the ffmpeg source
+
+webrtc:
+  listen: ""        # we use MSE over the authenticated WebSocket, not WebRTC
+
+log:
+  level: warn
+
+ffmpeg:
+  bin: ffmpeg
+  # This camera rejects TCP, so force UDP; low-latency flags; timeout in microseconds.
+  rtsp: "-fflags nobuffer -flags low_delay -rtsp_transport udp -timeout 5000000 -i {input}"
+
+streams:
+  # Copy the H.264 video (cheap) and transcode the camera's G.711 audio to AAC so
+  # browsers can play it in MSE.
+  camera:
+    - "ffmpeg:${RTSP_MAIN_URL}#video=copy#audio=aac"

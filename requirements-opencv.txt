@@ -1,0 +1,4 @@
+# Optional: richer motion detection (MOG2 background subtraction) on capable machines.
+# Not needed on Termux/Android — the default ffmpeg motion backend has no OpenCV dependency.
+numpy==2.0.2
+opencv-python-headless==4.10.0.84
