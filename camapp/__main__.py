@@ -13,6 +13,7 @@ import time
 
 from .buffer import prune
 from .config import load_config
+from .detect import Detector
 from .events import Clipper, prune_clips, prune_nas
 from .motion_ff import MotionDetector, MotionEvent
 from .recorder import Recorder
@@ -36,8 +37,19 @@ def main() -> None:
         log.info("Motion ended after %.1fs (peak %.1f%%)", event.last_motion - event.started, event.peak_area * 100)
         clipper.on_motion_end(event)
 
+    # Optional person/animal gate. If enabled but the runtime/model isn't installed, the
+    # Detector reports not-ready and we fall back to plain motion (never blocks recording).
+    confirm = None
+    if cfg.detect_enabled:
+        classifier = Detector(cfg.detect_model, cfg.detect_conf)
+        if classifier.ready:
+            confirm = lambda: classifier.targets_present(cfg.go2rtc_url, "camera")  # noqa: E731
+            log.info("Person/animal gate ON (model=%s, conf=%.2f)", cfg.detect_model, cfg.detect_conf)
+        else:
+            log.warning("DETECT_ENABLED set but detector unavailable — using plain motion")
+
     recorder = Recorder(cfg.record_url, cfg.buffer_dir, cfg.segment_seconds, cfg.rtsp_transport)
-    detector = MotionDetector(cfg.motion_url, cfg.rtsp_transport, cfg.motion, on_start, on_end)
+    motion = MotionDetector(cfg.motion_url, cfg.rtsp_transport, cfg.motion, on_start, on_end, confirm=confirm)
     stop = threading.Event()
 
     def shutdown(*_):
@@ -45,14 +57,14 @@ def main() -> None:
             log.info("Shutting down")
         stop.set()
         recorder.stop()
-        detector.stop()
+        motion.stop()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
     threads = [
         threading.Thread(target=recorder.run, name="recorder"),
-        threading.Thread(target=detector.run, name="motion"),
+        threading.Thread(target=motion.run, name="motion"),
     ]
     for t in threads:
         t.start()

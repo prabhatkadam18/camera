@@ -44,6 +44,9 @@ class Config:
     web_port: int
     go2rtc_url: str
     nas_remote: str  # rclone remote path for clip upload, e.g. "nas:camera/clips" ("" disables)
+    detect_enabled: bool  # gate motion events on a person/animal detector (needs requirements-detect)
+    detect_model: str
+    detect_conf: float
     web_password: str
     secret_key: str
 
@@ -101,6 +104,9 @@ def load_config() -> Config:
         web_port=int(os.getenv("WEB_PORT", "8080")),
         go2rtc_url=os.getenv("GO2RTC_URL", "http://127.0.0.1:1984").strip(),
         nas_remote=os.getenv("NAS_REMOTE", "").strip(),
+        detect_enabled=os.getenv("DETECT_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"),
+        detect_model=os.getenv("DETECT_MODEL", "yolov8n.pt").strip(),
+        detect_conf=float(os.getenv("DETECT_CONF", "0.4")),
         web_password=os.getenv("WEB_PASSWORD", "").strip(),
         secret_key=_secret_key(),
     )

@@ -1,0 +1,5 @@
+# Person/animal detection (optional, heavier) — install only where you want detection,
+# e.g. the Raspberry Pi:  .venv/bin/pip install -r requirements-detect.txt
+# Ultralytics pulls torch/torchvision (CPU build). These have aarch64 wheels for 64-bit
+# Raspberry Pi OS, so they install without compiling. Not installed on the phone/Termux.
+ultralytics

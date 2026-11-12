@@ -30,6 +30,7 @@ STALL_SECONDS = 10
 WARMUP_SECONDS = 4          # ignore frames right after (re)connect while the stream settles
 PIXEL_THRESH = 22           # per-pixel grey-level difference to count a pixel as "changed"
 BG_ALPHA = 0.02             # background adaptation rate per frame (slow)
+CONFIRM_COOLDOWN = 3.0      # min seconds between person/animal detector checks on sustained motion
 
 
 @dataclass
@@ -70,12 +71,17 @@ class MotionDetector:
         settings: MotionSettings,
         on_start: Callable[[MotionEvent], None],
         on_end: Callable[[MotionEvent], None],
+        confirm: Optional[Callable[[], bool]] = None,
     ):
         self.url = url
         self.rtsp_transport = rtsp_transport
         self.s = settings
         self.on_start = on_start
         self.on_end = on_end
+        # Optional second-stage gate: returns True if a person/animal is in frame. When set,
+        # a motion event only starts once it returns True (suppresses lights/shadows/flash).
+        self._confirm = confirm
+        self._last_confirm = 0.0
         self._stop = threading.Event()
         self._event: Optional[MotionEvent] = None
         self._hits = 0
@@ -147,8 +153,16 @@ class MotionDetector:
         event = self._event
         if event is None:
             if self._hits >= self.s.min_frames:
-                self._event = MotionEvent(now, now, area)
-                self.on_start(self._event)
+                if self._confirm is None:
+                    self._begin(now, area)
+                elif now - self._last_confirm >= CONFIRM_COOLDOWN:
+                    # Motion looks real — check for a person/animal before recording.
+                    self._last_confirm = now
+                    if self._confirm():
+                        self._begin(now, area)
+                    else:
+                        log.info("Motion but no person/animal in frame — ignoring")
+                        self._hits = 0
             return
         if moving:
             event.last_motion = now
@@ -159,6 +173,10 @@ class MotionDetector:
             self._finish_event()
         elif not moving and now - event.last_motion >= self.s.end_seconds:
             self._finish_event()
+
+    def _begin(self, now: float, area: float) -> None:
+        self._event = MotionEvent(now, now, area)
+        self.on_start(self._event)
 
     def _finish_event(self) -> None:
         if self._event is not None:

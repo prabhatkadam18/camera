@@ -1,0 +1,17 @@
+[Unit]
+Description=Backyard camera (go2rtc + web UI + recorder/motion/detection)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# <USER> and <DIR> are filled in by the sed command in DEPLOY.md / pi-setup.sh.
+User=<USER>
+WorkingDirectory=<DIR>
+ExecStart=/usr/bin/env bash <DIR>/run.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

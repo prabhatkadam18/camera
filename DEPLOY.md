@@ -1,4 +1,62 @@
-# Deploying on an Android phone (Termux)
+# Deploying the camera app
+
+Two homes for the always-on "brain": a **Raspberry Pi** (recommended — normal Linux, real
+systemd auto-start, and enough power to run person/animal detection) or an **Android phone
+(Termux)**. Run only ONE against the camera at a time — the camera streams well to a single
+device, so pick one as the brain.
+
+---
+
+# Raspberry Pi (recommended)
+
+64-bit Raspberry Pi OS. The camera stays on the home Wi-Fi (isolated from the internet); the
+Pi pulls it, serves the login-gated web UI, records, runs person/animal detection, and pushes
+clips to the NAS. Tailscale gives remote access; systemd keeps it running.
+
+## 1. Code + setup
+```bash
+sudo apt-get install -y git
+git clone <YOUR_REPO_URL> camera && cd camera
+bash deploy/pi-setup.sh
+```
+Installs ffmpeg, rclone, a Python venv (web stack + numpy), the detection deps
+(ultralytics/torch — a large download), and the prebuilt go2rtc binary (runs as-is on Pi OS).
+
+## 2. Configure
+```bash
+cp .env.example .env && nano .env
+```
+Set `RTSP_MAIN_URL` (the URL that works in VLC), `WEB_PASSWORD`, `NAS_REMOTE=nas:Recordings`,
+and `DETECT_ENABLED=true`. Then:
+- Copy `data/ptz_profile.json` onto the Pi → `~/camera/data/ptz_profile.json` (not in the repo).
+- `rclone config` → recreate the `nas` SMB remote (host = NAS IP, your SMB creds).
+
+## 3. Auto-start with systemd
+```bash
+sed "s|<USER>|$USER|g; s|<DIR>|$PWD|g" deploy/camera.service | sudo tee /etc/systemd/system/camera.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable --now camera
+systemctl status camera     # should be "active (running)"
+journalctl -u camera -f     # live logs
+```
+Starts on boot, restarts on crash — no wake-lock or battery fiddling.
+
+## 4. Tailscale (remote access)
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+```
+Then `http://<pi-tailscale-ip>:8080` from anywhere, `http://<pi-lan-ip>:8080` at home.
+
+## 5. Detection
+Cheap motion triggers, then YOLO checks a go2rtc snapshot; a clip is saved only if a person or
+animal is found — lights, shadows, headlights and rain are ignored. Tune in `.env`:
+`DETECT_CONF` (0.4; raise to cut false positives), `DETECT_MODEL` (`yolov8n.pt` fast default,
+`yolov8s.pt` more accurate/slower). If the deps aren't installed it falls back to plain motion.
+
+---
+
+# Android phone (Termux)
 
 The phone is the always-on "brain": it pulls the camera, serves the login-gated web UI,
 runs motion detection, and pushes clips to the NAS. The Synology is storage-only; Tailscale
