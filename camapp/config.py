@@ -36,6 +36,8 @@ class Config:
     clips_dir: Path
     segment_seconds: int
     buffer_minutes: float
+    clip_retention_days: float   # keep saved clips on THIS device (phone: short, limited space)
+    nas_retention_days: float    # keep clips on the NAS (long-term store)
     motion: MotionSettings
     event_pre_seconds: float
     event_post_seconds: float
@@ -91,6 +93,8 @@ def load_config() -> Config:
         clips_dir=_path(os.getenv("CLIPS_DIR", "data/clips")),
         segment_seconds=int(os.getenv("SEGMENT_SECONDS", "10")),
         buffer_minutes=float(os.getenv("BUFFER_MINUTES", "10")),
+        clip_retention_days=float(os.getenv("CLIP_RETENTION_DAYS", "3")),
+        nas_retention_days=float(os.getenv("NAS_RETENTION_DAYS", "30")),
         motion=motion,
         event_pre_seconds=float(os.getenv("EVENT_PRE_SECONDS", "6")),
         event_post_seconds=float(os.getenv("EVENT_POST_SECONDS", "6")),

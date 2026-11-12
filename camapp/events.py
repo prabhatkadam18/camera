@@ -105,6 +105,39 @@ class Clipper:
         )
 
 
+def prune_clips(clips_dir: Path, max_age_days: float) -> int:
+    """Delete saved clips (and their thumbnails) older than max_age_days from this device.
+    The phone keeps a short window; the NAS is the long-term store."""
+    if max_age_days <= 0:
+        return 0
+    cutoff = time.time() - max_age_days * 86400
+    removed = 0
+    for p in clips_dir.glob("EVENT_*.mp4"):
+        try:
+            if p.stat().st_mtime < cutoff:
+                p.unlink(missing_ok=True)
+                p.with_suffix(".jpg").unlink(missing_ok=True)
+                removed += 1
+        except FileNotFoundError:
+            continue
+    return removed
+
+
+def prune_nas(cfg: Config, max_age_days: float) -> None:
+    """Delete clips older than max_age_days on the NAS via rclone (top level only, so it
+    never recurses into the Synology #recycle folder). No-op if the NAS isn't configured."""
+    if not cfg.nas_remote or max_age_days <= 0:
+        return
+    r = subprocess.run(
+        ["rclone", "delete", "--min-age", f"{int(max_age_days)}d", "--max-depth", "1", cfg.nas_remote],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        log.warning("NAS retention prune failed: %s", r.stderr.strip()[:200])
+    else:
+        log.info("NAS retention prune done (older than %sd)", int(max_age_days))
+
+
 def sync_to_nas(path: Path, cfg: Config, retries: int = 3) -> bool:
     """Copy the clip (and its thumbnail) to the NAS via rclone. No-op if not configured."""
     if not cfg.nas_remote:

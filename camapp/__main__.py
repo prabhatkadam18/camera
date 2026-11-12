@@ -9,10 +9,11 @@ import logging
 import signal
 import sys
 import threading
+import time
 
 from .buffer import prune
 from .config import load_config
-from .events import Clipper
+from .events import Clipper, prune_clips, prune_nas
 from .motion_ff import MotionDetector, MotionEvent
 from .recorder import Recorder
 
@@ -59,8 +60,20 @@ def main() -> None:
              cfg.record_url.split("@")[-1], cfg.buffer_dir, cfg.motion_url.split("@")[-1], cfg.clips_dir)
 
     max_age = cfg.buffer_minutes * 60
+    CLIP_PRUNE_EVERY = 600        # prune local saved clips every 10 min
+    NAS_PRUNE_EVERY = 6 * 3600    # prune the NAS every 6 h
+    last_clip = last_nas = -1e9   # prune once at startup too
     while all(t.is_alive() for t in threads) and not stop.wait(PRUNE_INTERVAL_SECONDS):
-        prune(cfg.buffer_dir, max_age)
+        prune(cfg.buffer_dir, max_age)  # rolling buffer (minutes)
+        now = time.monotonic()
+        if now - last_clip >= CLIP_PRUNE_EVERY:
+            last_clip = now
+            n = prune_clips(cfg.clips_dir, cfg.clip_retention_days)
+            if n:
+                log.info("Pruned %d local clip(s) older than %.0fd", n, cfg.clip_retention_days)
+        if now - last_nas >= NAS_PRUNE_EVERY:
+            last_nas = now  # rclone is network I/O, so prune the NAS off the loop thread
+            threading.Thread(target=prune_nas, args=(cfg, cfg.nas_retention_days), daemon=True).start()
 
     crashed = not stop.is_set()
     if crashed:
