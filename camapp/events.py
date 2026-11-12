@@ -129,7 +129,10 @@ def prune_nas(cfg: Config, max_age_days: float) -> None:
     if not cfg.nas_remote or max_age_days <= 0:
         return
     r = subprocess.run(
-        ["rclone", "delete", "--min-age", f"{int(max_age_days)}d", "--max-depth", "1", cfg.nas_remote],
+        # --include "EVENT_*" so retention only ever deletes our clip files, never anything
+        # else kept in the share; --max-depth 1 avoids recursing into the Synology #recycle.
+        ["rclone", "delete", "--min-age", f"{int(max_age_days)}d", "--max-depth", "1",
+         "--include", "EVENT_*", cfg.nas_remote],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
