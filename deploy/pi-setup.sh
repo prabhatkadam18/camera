@@ -18,6 +18,11 @@ sudo apt-get install -y ffmpeg rclone python3-venv python3-pip curl
 echo "==> Python virtualenv + base deps (pure-Python web stack + numpy)"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
+# pip unpacks wheels in $TMPDIR. On Pi OS the default /tmp is a small RAM tmpfs (~2GB), and
+# torch overflows it ("No space left on device") even with plenty of disk free — so use a
+# temp dir on the real disk.
+export TMPDIR="$PWD/.pip-tmp"
+mkdir -p "$TMPDIR"
 # --no-cache-dir avoids keeping the big wheels (esp. torch) in ~/.cache, which can fill a
 # small SD card during install ("No space left on device").
 .venv/bin/python -m pip install --no-cache-dir -r requirements.txt
@@ -41,6 +46,8 @@ if [ -n "$GOARCH" ]; then
   chmod +x tools/bin/go2rtc
   echo "    go2rtc: $(tools/bin/go2rtc --version 2>&1 | head -1)"
 fi
+
+rm -rf "$TMPDIR"
 
 cat <<NEXT
 

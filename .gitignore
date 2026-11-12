@@ -4,6 +4,7 @@ data/secret.key
 
 # Local environments / build
 .venv/
+.pip-tmp/
 __pycache__/
 *.pyc
 .DS_Store
