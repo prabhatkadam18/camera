@@ -18,10 +18,12 @@ sudo apt-get install -y ffmpeg rclone python3-venv python3-pip curl
 echo "==> Python virtualenv + base deps (pure-Python web stack + numpy)"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -r requirements.txt
+# --no-cache-dir avoids keeping the big wheels (esp. torch) in ~/.cache, which can fill a
+# small SD card during install ("No space left on device").
+.venv/bin/python -m pip install --no-cache-dir -r requirements.txt
 
-echo "==> Detection deps (ultralytics + torch; large download, has aarch64 wheels)"
-.venv/bin/python -m pip install -r requirements-detect.txt
+echo "==> Detection deps (ultralytics + torch; large — needs a few GB free)"
+.venv/bin/python -m pip install --no-cache-dir -r requirements-detect.txt
 echo "    pre-fetching the YOLO model…"
 .venv/bin/python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" || \
   echo "    (model will download on first run instead)"
