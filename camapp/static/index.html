@@ -25,8 +25,12 @@
   .pad .c { grid-area:2/2; background:transparent; color:#555; font-size:.7rem; }
   h2 { font-size:.9rem; color:#999; margin:20px 0 8px; font-weight:600; }
   .events { display:grid; gap:8px; }
-  .events a { display:flex; align-items:center; gap:12px; padding:9px 11px; background:#17171c;
-    border:1px solid #23232b; border-radius:10px; color:#ddd; text-decoration:none; font-size:.85rem; }
+  .events .ev { display:flex; align-items:center; gap:8px; }
+  .events .evlink { flex:1; min-width:0; display:flex; align-items:center; gap:12px; padding:9px 11px;
+    background:#17171c; border:1px solid #23232b; border-radius:10px; color:#ddd; text-decoration:none; font-size:.85rem; }
+  .events .keep { flex:none; width:44px; height:44px; border:0; border-radius:10px; background:#1d1d24;
+    color:#666; font-size:1.3rem; line-height:1; touch-action:manipulation; }
+  .events .keep.on { color:#f5c518; }  /* gold star = kept */
   .events img { width:80px; height:45px; object-fit:cover; border-radius:6px; background:#000; flex:none; }
   .events .meta { display:flex; flex-direction:column; gap:2px; min-width:0; }
   .events .meta span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -102,8 +106,25 @@ async function loadEvents() {
     const d = new Date(e.mtime*1000).toLocaleString();
     const mb = (e.size/1048576).toFixed(1);
     const thumb = e.thumb ? `<img src="/clips/${encodeURIComponent(e.thumb)}" alt="">` : '';
-    return `<a href="/clips/${encodeURIComponent(e.name)}" target="_blank">${thumb}<span class="meta"><span>${e.name}</span><span class="t">${d} · ${mb} MB</span></span></a>`;
+    const label = e.name.replace(/^(EVENT_|KEEP_)/, '');
+    const n = encodeURIComponent(e.name);
+    return `<div class="ev">
+      <a class="evlink" href="/clips/${n}" target="_blank">${thumb}<span class="meta"><span>${label}</span><span class="t">${d} · ${mb} MB${e.kept ? ' · kept' : ''}</span></span></a>
+      <button class="keep${e.kept ? ' on' : ''}" data-name="${n}" title="${e.kept ? 'Kept — tap to allow auto-delete' : 'Keep this clip (exempt from auto-delete)'}">${e.kept ? '★' : '☆'}</button>
+    </div>`;
   }).join('');
+  // Toggle keep: renames EVENT_<->KEEP_ on the server, then refresh the list.
+  for (const b of el.querySelectorAll('.keep')) {
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const r = await fetch(`/app/clips/${b.dataset.name}/keep`, { method: 'POST' });
+        if (r.ok) { toast('Updated'); return loadEvents(); }
+        toast('Keep failed');
+      } catch (_) { toast('Keep error'); }
+      b.disabled = false;
+    };
+  }
 }
 loadEvents(); setInterval(loadEvents, 30000);
 

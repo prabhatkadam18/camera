@@ -38,6 +38,7 @@ class Config:
     buffer_minutes: float
     clip_retention_days: float   # keep saved clips on THIS device (phone: short, limited space)
     nas_retention_days: float    # keep clips on the NAS (long-term store)
+    keep_retention_days: float   # clips marked "Keep" (KEEP_*) are retained this much longer
     motion: MotionSettings
     event_pre_seconds: float
     event_post_seconds: float
@@ -98,6 +99,7 @@ def load_config() -> Config:
         buffer_minutes=float(os.getenv("BUFFER_MINUTES", "10")),
         clip_retention_days=float(os.getenv("CLIP_RETENTION_DAYS", "3")),
         nas_retention_days=float(os.getenv("NAS_RETENTION_DAYS", "30")),
+        keep_retention_days=float(os.getenv("KEEP_RETENTION_DAYS", "180")),
         motion=motion,
         event_pre_seconds=float(os.getenv("EVENT_PRE_SECONDS", "6")),
         event_post_seconds=float(os.getenv("EVENT_POST_SECONDS", "6")),

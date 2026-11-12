@@ -80,12 +80,14 @@ def main() -> None:
         now = time.monotonic()
         if now - last_clip >= CLIP_PRUNE_EVERY:
             last_clip = now
-            n = prune_clips(cfg.clips_dir, cfg.clip_retention_days)
+            n = prune_clips(cfg.clips_dir, cfg.clip_retention_days)                      # EVENT_ (short)
+            n += prune_clips(cfg.clips_dir, cfg.keep_retention_days, prefix="KEEP_")     # KEEP_ (long)
             if n:
-                log.info("Pruned %d local clip(s) older than %.0fd", n, cfg.clip_retention_days)
+                log.info("Pruned %d local clip(s) past retention", n)
         if now - last_nas >= NAS_PRUNE_EVERY:
             last_nas = now  # rclone is network I/O, so prune the NAS off the loop thread
             threading.Thread(target=prune_nas, args=(cfg, cfg.nas_retention_days), daemon=True).start()
+            threading.Thread(target=prune_nas, args=(cfg, cfg.keep_retention_days, "KEEP_*"), daemon=True).start()
 
     crashed = not stop.is_set()
     if crashed:

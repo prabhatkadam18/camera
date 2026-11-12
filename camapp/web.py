@@ -25,6 +25,7 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket
 
 from .config import Config, load_config
+from .events import toggle_keep
 from .ptz import PTZController
 
 log = logging.getLogger("web")
@@ -109,8 +110,16 @@ def build(cfg: Config) -> Starlette:
                 st = f.stat()
                 thumb = f.with_suffix(".jpg")
                 items.append({"name": f.name, "size": st.st_size, "mtime": int(st.st_mtime),
-                              "thumb": thumb.name if thumb.exists() else None})
+                              "thumb": thumb.name if thumb.exists() else None,
+                              "kept": f.name.startswith("KEEP_")})
         return JSONResponse({"events": items})
+
+    async def keep(request: Request):
+        require(request)
+        new_name = toggle_keep(cfg, request.path_params["name"])
+        if not new_name:
+            raise HTTPException(status_code=404)
+        return JSONResponse({"ok": True, "name": new_name, "kept": new_name.startswith("KEEP_")})
 
     async def clip(request: Request):
         require(request)
@@ -184,6 +193,7 @@ def build(cfg: Config) -> Starlette:
         Route("/", index, methods=["GET"]),
         Route("/app/ptz/{direction}", ptz, methods=["POST"]),
         Route("/app/events", events, methods=["GET"]),
+        Route("/app/clips/{name}/keep", keep, methods=["POST"]),
         Route("/clips/{name}", clip, methods=["GET"]),
         Route("/manifest.webmanifest", manifest, methods=["GET"]),
         Route("/sw.js", sw, methods=["GET"]),

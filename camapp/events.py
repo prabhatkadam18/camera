@@ -105,14 +105,14 @@ class Clipper:
         )
 
 
-def prune_clips(clips_dir: Path, max_age_days: float) -> int:
-    """Delete saved clips (and their thumbnails) older than max_age_days from this device.
-    The phone keeps a short window; the NAS is the long-term store."""
+def prune_clips(clips_dir: Path, max_age_days: float, prefix: str = "EVENT_") -> int:
+    """Delete saved clips (and thumbnails) with the given name prefix older than max_age_days
+    from this device. EVENT_* are normal clips (short window); KEEP_* are "kept" (longer)."""
     if max_age_days <= 0:
         return 0
     cutoff = time.time() - max_age_days * 86400
     removed = 0
-    for p in clips_dir.glob("EVENT_*.mp4"):
+    for p in clips_dir.glob(f"{prefix}*.mp4"):
         try:
             if p.stat().st_mtime < cutoff:
                 p.unlink(missing_ok=True)
@@ -123,22 +123,51 @@ def prune_clips(clips_dir: Path, max_age_days: float) -> int:
     return removed
 
 
-def prune_nas(cfg: Config, max_age_days: float) -> None:
-    """Delete clips older than max_age_days on the NAS via rclone (top level only, so it
-    never recurses into the Synology #recycle folder). No-op if the NAS isn't configured."""
+def prune_nas(cfg: Config, max_age_days: float, include: str = "EVENT_*") -> None:
+    """Delete clips matching `include` older than max_age_days on the NAS via rclone (top
+    level only, so it never recurses into the Synology #recycle). No-op without a NAS."""
     if not cfg.nas_remote or max_age_days <= 0:
         return
     r = subprocess.run(
-        # --include "EVENT_*" so retention only ever deletes our clip files, never anything
-        # else kept in the share; --max-depth 1 avoids recursing into the Synology #recycle.
+        # include-glob scopes the delete to our clip files; --max-depth 1 avoids #recycle.
         ["rclone", "delete", "--min-age", f"{int(max_age_days)}d", "--max-depth", "1",
-         "--include", "EVENT_*", cfg.nas_remote],
+         "--include", include, cfg.nas_remote],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
-        log.warning("NAS retention prune failed: %s", r.stderr.strip()[:200])
+        log.warning("NAS retention prune failed (%s): %s", include, r.stderr.strip()[:200])
     else:
-        log.info("NAS retention prune done (older than %sd)", int(max_age_days))
+        log.info("NAS retention prune done (%s older than %sd)", include, int(max_age_days))
+
+
+def _nas_rename(cfg: Config, old_stem: str, new_stem: str) -> None:
+    for ext in (".mp4", ".jpg"):
+        subprocess.run(["rclone", "moveto", f"{cfg.nas_remote}/{old_stem}{ext}",
+                        f"{cfg.nas_remote}/{new_stem}{ext}"], capture_output=True, text=True)
+
+
+def toggle_keep(cfg: Config, name: str) -> str | None:
+    """Flip a clip between EVENT_ (normal retention) and KEEP_ (long retention) by renaming
+    its .mp4 + .jpg, locally and (in the background) on the NAS. Returns the new .mp4 name,
+    or None if the clip wasn't found / name is unsafe."""
+    src = (cfg.clips_dir / name).resolve()
+    if src.parent != cfg.clips_dir.resolve() or src.suffix != ".mp4" or not src.exists():
+        return None
+    stem = src.stem
+    if stem.startswith("KEEP_"):
+        new_stem = "EVENT_" + stem[len("KEEP_"):]
+    elif stem.startswith("EVENT_"):
+        new_stem = "KEEP_" + stem[len("EVENT_"):]
+    else:
+        return None
+    for ext in (".mp4", ".jpg"):
+        old = cfg.clips_dir / f"{stem}{ext}"
+        if old.exists():
+            old.rename(cfg.clips_dir / f"{new_stem}{ext}")
+    if cfg.nas_remote:
+        threading.Thread(target=_nas_rename, args=(cfg, stem, new_stem), daemon=True).start()
+    log.info("Clip %s -> %s", stem, new_stem)
+    return f"{new_stem}.mp4"
 
 
 def sync_to_nas(path: Path, cfg: Config, retries: int = 3) -> bool:
